@@ -17,25 +17,24 @@ ch.setFormatter(formatter)
 ch.setLevel(logging.INFO)
 logger.addHandler(ch)
 
-fh = logging.FileHandler(r'C:\Users\uande18\code\checkLogins.log')
-fh.setFormatter(formatter)
-fh.setLevel(logging.DEBUG)
-logger.addHandler(fh)
-
 ####################################################################
 ## numbers in seconds that are used for warnings and log outs of the
 ## restricted users
 
 # warnDuration = 25*60 #25 minutes
 # logoutDuration = 30*60 #30 minutes
-warnDuration = 55*60 #55 minutes
-logoutDuration = 60*60 #60 minutes
+warnDuration = 40*60 #40 minutes
+logoutDuration = 45*60 #45 minutes
 
 restrictedUsers = ['seth', 'grant', 'max']
 #restrictedUsers = []
 allUsers = ['seth', 'grant', 'max', 'jake', 'candi', 'rose', 'uande18']
-durationFile = r'C:\Users\uande18\code\restrictedDurations.pkl'
+durationFile = r'C:\checkLogins\restrictedDurations.pkl'
 
+fh = logging.FileHandler(r'C:\checkLogins\checkLogins.log')
+fh.setFormatter(formatter)
+fh.setLevel(logging.DEBUG)
+logger.addHandler(fh)
 
 #####################################################################
 
@@ -113,21 +112,39 @@ def lastToDurations(users = userDurations):
 
     return users
 
+def playNotification(user = None, host = None):
+    subprocess.call([
+        'powershell', '-c', 
+        '(New-Object Media.SoundPlayer "C:\Windows\Media\chord.wav").PlaySync();'
+    ])
+
+def displayNotificationWindow(user = None, host = None):
+    msgText = 'This is your warning.  You will be logged out ' +\
+              'soon. Save your work now and logout to prevent data loss.'
+    # subprocess.call(['env', 'DISPLAY={0}'.format(user.host),
+    #                  'su','-c', "/usr/bin/notify-send "+\
+    #                  "'Time Limit Warning' 'This is your "+\
+    #                  "warning.  You will be logged out "+\
+    #                  "soon." +\
+    #                  "Save your work now and logout to " +\
+    #                  "prevent data loss.'", username])
+    subprocess.call(['msg', user, '/time:10', msgText])
+
 def checkUsers(chkUsers, warn = warnDuration, noMoreWarn = stopWarnDuration):
     warnedUsers = {}
-    for user in psutil.get_users():
-        logger.debug(str(user))
+    for user in psutil.users():
+        # logger.debug(str(user))
         username = user.name.lower()
         if (not user.terminal) or re.search(r':[0-9]', user.terminal):
             loginTime = datetime.datetime.fromtimestamp(user.started)
             loginDuration = checkTime - loginTime
             logger.debug('{} logged in at {} for {}'.format(username, loginTime, loginDuration))
             if username in chkUsers:
-                logger.info('{} loginTime: {}'.format(chkUsers[username], loginTime))
+                logger.debug('{} loginTime: {}'.format(chkUsers[username], loginTime))
                 try:
-                    logger.info("newLogin: {}".format(chkUsers[username].lastLogin < loginTime))
+                    logger.debug("newLogin: {}".format(chkUsers[username].lastLogin < loginTime))
                 except:
-                    logger.info("lastLogin: {}".format(chkUsers[username].lastLogin))
+                    logger.debug("lastLogin: {}".format(chkUsers[username].lastLogin))
                 if (chkUsers[username].lastLogin != None) and \
                    (chkUsers[username].lastLogin < loginTime) and \
                     (chkUsers[username].loginDuration != None):
@@ -142,22 +159,15 @@ def checkUsers(chkUsers, warn = warnDuration, noMoreWarn = stopWarnDuration):
                     if (loginDuration.total_seconds() < noMoreWarn):
                         logger.warning('{} has been warned after {}'.format(
                             username,loginDuration))
-                        # subprocess.call(['env', 'DISPLAY={0}'.format(user.host),
-                                         # 'su','-c', "/usr/bin/notify-send "+\
-                                         # "'Time Limit Warning' 'This is your "+\
-                                         # "warning.  You will be logged out "+\
-                                         # "soon." +\
-                                         # "Save your work now and logout to " +\
-                                         # "prevent data loss.'", username])
-                        # subprocess.call(['env', 'DISPLAY={0}'.format(user.host),
-                                         # 'su', username, '-c', 'aplay -q ' +\
-                                         # '/usr/share/sounds/purple/alert.wav'])
+                        playNotification(username)
+                        displayNotificationWindow(username)
                     warnedUsers[username] = chkUsers[username]
     return warnedUsers
 
 def disableUser(user):
     logger.info('locking user: {}'.format(user))
     # subprocess.call(['passwd', '-l', user])
+    subprocess.call(['net', 'user', user, '/active:no'])
 
 def disableUsers(users):
     for user in users:
@@ -166,6 +176,7 @@ def disableUsers(users):
 def enableUser(user):
     logger.info('unlocking user: {}'.format(user))
     # subprocess.call(['passwd', '-u', user])
+    subprocess.call(['net', 'user', user, '/active:yes'])
 
 def enableUsers(users = restrictedUsers):
     global userDurations
@@ -178,6 +189,14 @@ def enableUsers(users = restrictedUsers):
             pass
     writeDurationFile(durationFile, userDurations)
 
+def findUserSession(user):
+    sessions = subprocess.check_output(['qwinsta'], 
+                                       universal_newlines = True).split()
+    try:
+        return sessions[sessions.index(user)+1]
+    except ValueError:
+        logger.info('user: {} session not found'.format(user))
+        return ''
 
 def logUserOut(user):
     sigs = ['-15', '-15', '-9', '-9']
@@ -186,6 +205,11 @@ def logUserOut(user):
     while userLoggedIn(user) and (sigi < len(sigs)):
         logger.info("sending signal {} to user {}".format(sigs[sigi],user))
         # subprocess.call(['pkill', sigs[sigi], '-u', user])
+        if sigs[sigi] == sigs[0]:
+            session = findUserSession(user)
+            subprocess.call(['logoff', str(session)])
+        else:
+            subprocess.call(['shutdown','/l','/t', '10'])
         time.sleep(30)
         sigi += 1
 
@@ -215,8 +239,13 @@ if __name__ == '__main__':
     parser.add_argument('--view', action='store_true',
                         help='use last command to determine durations for today.')
     args = parser.parse_args()
+	
+    import sys
+    output_f = open(r'C:\checkLogins\script_output.txt', 'a+')
+    sys.stdout = output_f
+    sys.stderr = output_f
 
-    logger.debug('running checkLogins')
+    # logger.debug('running checkLogins')
     if args.enable != None:
         theUsers = restrictedUsers
         if len(args.enable) > 0:
@@ -249,3 +278,5 @@ if __name__ == '__main__':
             disableUser(user)
             if wusers[user].loginDuration.total_seconds() > logoutDuration:
                 logUserOut(user)
+	
+    output_f.close()
