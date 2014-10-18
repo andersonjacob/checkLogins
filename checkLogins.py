@@ -138,23 +138,28 @@ def checkUsers(chkUsers, warn = warnDuration, noMoreWarn = stopWarnDuration):
         if (not user.terminal) or re.search(r':[0-9]', user.terminal):
             loginTime = datetime.datetime.fromtimestamp(user.started)
             loginDuration = checkTime - loginTime
-            logger.debug('{} logged in at {} for {}'.format(username, loginTime, loginDuration))
+            logger.debug('{} logged in at {} for {}'.format(
+                username, loginTime, loginDuration))
             if username in chkUsers:
-                logger.debug('{} loginTime: {}'.format(chkUsers[username], loginTime))
+                # logger.debug('{} loginTime: {}'.format(
+                #     chkUsers[username], loginTime))
                 try:
-                    logger.debug("newLogin: {}".format(chkUsers[username].lastLogin < loginTime))
+                    logger.debug("newLogin: {}".format(
+                        chkUsers[username].lastLogin < loginTime))
                 except:
-                    logger.debug("lastLogin: {}".format(chkUsers[username].lastLogin))
+                    logger.debug("lastLogin: {}".format(
+                        chkUsers[username].lastLogin))
                 if (chkUsers[username].lastLogin != None) and \
                    (chkUsers[username].lastLogin < loginTime) and \
-                    (chkUsers[username].loginDuration != None):
+                   (chkUsers[username].loginDuration != None):
                     chkUsers[username].lastDuration = chkUsers[username].loginDuration
                     loginDuration += chkUsers[username].loginDuration
                 elif chkUsers[username].lastDuration:
                     loginDuration += chkUsers[username].lastDuration
                 chkUsers[username].lastLogin = loginTime
                 chkUsers[username].loginDuration = loginDuration
-                logger.info('user {} logged in for {}'.format(username, loginDuration))
+                logger.info('user {} logged in for {}'.format(
+                    username, loginDuration))
                 if (loginDuration.total_seconds() > warn):
                     if (loginDuration.total_seconds() < noMoreWarn):
                         logger.warning('{} has been warned after {}'.format(
