@@ -14,7 +14,7 @@ formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s",
                               datefmt="%Y-%m-%d %H:%M:%S")
 ch = logging.StreamHandler()
 ch.setFormatter(formatter)
-ch.setLevel(logging.INFO)
+ch.setLevel(logging.DEBUG)
 logger.addHandler(ch)
 
 ####################################################################
@@ -25,6 +25,8 @@ logger.addHandler(ch)
 # logoutDuration = 30*60 #30 minutes
 warnDuration = 40*60 #40 minutes
 logoutDuration = 45*60 #45 minutes
+
+cronPeriod = datetime.timedelta(minutes=5)
 
 restrictedUsers = ['seth', 'grant', 'max']
 #restrictedUsers = []
@@ -143,14 +145,19 @@ def checkUsers(chkUsers, warn = warnDuration, noMoreWarn = stopWarnDuration):
             if username in chkUsers:
                 # logger.debug('{} loginTime: {}'.format(
                 #     chkUsers[username], loginTime))
-                try:
-                    logger.debug("newLogin: {}".format(
-                        chkUsers[username].lastLogin < loginTime))
-                except:
-                    logger.debug("lastLogin: {}".format(
-                        chkUsers[username].lastLogin))
-                if (chkUsers[username].lastLogin != None) and \
-                   (chkUsers[username].lastLogin < loginTime) and \
+                lastLogin = chkUsers[username].lastLogin
+                if lastLogin and (lastLogin >= loginTime):
+                    loginTime = lastLogin
+                if (lastLogin == None) and (loginDuration > cronPeriod):
+                    loginTime = checkTime
+                loginDuration = checkTime-loginTime
+                # try:
+                #     logger.debug("newLogin: {}".format(
+                #         chkUsers[username].lastLogin < loginTime))
+                # except:
+                #     logger.debug("lastLogin: {}".format(
+                #         chkUsers[username].lastLogin))
+                if (lastLogin) and (lastLogin < loginTime) and \
                    (chkUsers[username].loginDuration != None):
                     chkUsers[username].lastDuration = chkUsers[username].loginDuration
                     loginDuration += chkUsers[username].loginDuration
@@ -161,11 +168,11 @@ def checkUsers(chkUsers, warn = warnDuration, noMoreWarn = stopWarnDuration):
                 logger.info('user {} logged in for {}'.format(
                     username, loginDuration))
                 if (loginDuration.total_seconds() > warn):
-                    if (loginDuration.total_seconds() < noMoreWarn):
-                        logger.warning('{} has been warned after {}'.format(
-                            username,loginDuration))
-                        playNotification(username)
-                        displayNotificationWindow(username)
+                    # if (loginDuration.total_seconds() < noMoreWarn):
+                    logger.warning('{} has been warned after {}'.format(
+                        username,loginDuration))
+                    playNotification(username)
+                    displayNotificationWindow(username)
                     warnedUsers[username] = chkUsers[username]
     return warnedUsers
 
