@@ -21,16 +21,15 @@ logger.addHandler(ch)
 ## numbers in seconds that are used for warnings and log outs of the
 ## restricted users
 
-# warnDuration = 25*60 #25 minutes
-# logoutDuration = 30*60 #30 minutes
-warnDuration = 40*60 #40 minutes
-logoutDuration = 45*60 #45 minutes
+warnDuration = datetime.timedelta(minutes=40)
+logoutDuration = datetime.timedelta(minutes=45)
+stopWarnDuration = warnDuration + datetime.timedelta(minutes=10)
 
 cronPeriod = datetime.timedelta(minutes=5)
 
-restrictedUsers = ['seth', 'grant', 'max']
+restrictedUsers = ['seth', 'grant', 'max', 'rose']
 #restrictedUsers = []
-allUsers = ['seth', 'grant', 'max', 'jake', 'candi', 'rose', 'uande18']
+allUsers = restrictedUsers + ['jake', 'candi', 'uande18']
 durationFile = r'C:\checkLogins\restrictedDurations.pkl'
 
 fh = logging.FileHandler(r'C:\checkLogins\checkLogins.log')
@@ -42,33 +41,33 @@ logger.addHandler(fh)
 
 class UserDuration:
     def __init__(self, username, date = None, duration = None,
-                 lastDuration = None):
+                 lastLogin = None, lastDuration = None):
         self.username = username
-        self.lastLogin = date
         self.loginDuration = duration
+        self.loginTime = date
+        self.lastLogin = lastLogin
         self.lastDuration = lastDuration
 
     def __str__(self):
-        return 'Duration({0},{1},{2},{3})'.format(self.username,
-                                                  self.lastLogin,
-                                                  self.loginDuration,
-                                                  self.lastDuration)
+        return 'Duration({0},{1},{2},{3},{4})'.format(
+            self.username, self.loginTime, self.loginDuration,
+            self.lastLogin, self.lastDuration)
 
 
-stopWarnDuration = warnDuration + 10*60
 checkTime = datetime.datetime.now()
 # userDurations = dict(zip(restrictedUsers, [None]*len(restrictedUsers)))
 # allDurations = dict(zip(allUsers, [None]*len(allUsers)))
 userDurations = { u:UserDuration(u) for u in restrictedUsers }
 allDurations = { u:UserDuration(u) for u in allUsers }
 
-def readDurationFile(filename = durationFile, users = userDurations):
+def readDurationFile(filename = durationFile):
+    users = allDurations
     try:
         f = open(filename, 'rb')
         rdur = pickle.load(f)
         for u in rdur:
-            if rdur[u].lastLogin and \
-                (rdur[u].lastLogin.date() == datetime.date.today()):
+            if (rdur[u].loginTime) and \
+               (rdur[u].loginTime.date() == datetime.date.today()):
                 users[u] = rdur[u]
     except:
         pass
@@ -145,29 +144,25 @@ def checkUsers(chkUsers, warn = warnDuration, noMoreWarn = stopWarnDuration):
             if username in chkUsers:
                 # logger.debug('{} loginTime: {}'.format(
                 #     chkUsers[username], loginTime))
-                lastLogin = chkUsers[username].lastLogin
-                if lastLogin and (lastLogin >= loginTime):
-                    loginTime = lastLogin
-                if (lastLogin == None) and (loginDuration > cronPeriod):
+                storedTime = chkUsers[username].loginTime
+                if storedTime and (storedTime >= loginTime):
+                    loginTime = storedTime
+                if (storedTime == None) and (loginDuration > cronPeriod):
                     loginTime = checkTime
                 loginDuration = checkTime-loginTime
-                # try:
-                #     logger.debug("newLogin: {}".format(
-                #         chkUsers[username].lastLogin < loginTime))
-                # except:
-                #     logger.debug("lastLogin: {}".format(
-                #         chkUsers[username].lastLogin))
+                lastLogin = chkUsers[username].lastLogin
                 if (lastLogin) and (lastLogin < loginTime) and \
                    (chkUsers[username].loginDuration != None):
                     chkUsers[username].lastDuration = chkUsers[username].loginDuration
+                    chkUsers[username].lastLogin = chkUsers[username].loginTime
                     loginDuration += chkUsers[username].loginDuration
                 elif chkUsers[username].lastDuration:
                     loginDuration += chkUsers[username].lastDuration
-                chkUsers[username].lastLogin = loginTime
+                chkUsers[username].loginTime = loginTime
                 chkUsers[username].loginDuration = loginDuration
                 logger.info('user {} logged in for {}'.format(
                     username, loginDuration))
-                if (loginDuration.total_seconds() > warn):
+                if (loginDuration > warn):
                     # if (loginDuration.total_seconds() < noMoreWarn):
                     logger.warning('{} has been warned after {}'.format(
                         username,loginDuration))
@@ -192,7 +187,7 @@ def enableUser(user):
 
 def enableUsers(users = restrictedUsers):
     global userDurations
-    userDurations = readDurationFile(durationFile, userDurations)
+    userDurations = readDurationFile(durationFile)
     for user in users:
         enableUser(user)
         try:
@@ -253,9 +248,9 @@ if __name__ == '__main__':
     args = parser.parse_args()
 	
     import sys
-    output_f = open(r'C:\checkLogins\script_output.txt', 'a+')
-    sys.stdout = output_f
-    sys.stderr = output_f
+    # output_f = open(r'C:\checkLogins\script_output.txt', 'a+')
+    # sys.stdout = output_f
+    # sys.stderr = output_f
 
     # logger.debug('running checkLogins')
     if args.enable != None:
@@ -269,26 +264,33 @@ if __name__ == '__main__':
             theUsers = args.disable
         disableUsers(theUsers)
     elif args.all:
-        # allDurations = readDurationFile(durationFile, allDurations)
-        checkUsers(allDurations, warnDuration, 24*60*60)
+        savedDurations = readDurationFile(durationFile)
+        allDurations = { u:savedDurations[u] for u in allDurations }
         for user in allDurations:
             logger.info(str(allDurations[user]))
+        checkUsers(allDurations, warnDuration, datetime.timedelta(hours=24))
+        for user in allDurations:
+            logger.info(str(allDurations[user]))
+            savedDurations.update(allDurations)
+        writeDurationFile(durationFile, savedDurations)
     elif args.last:
         loadedUsers = lastToDurations()
         for user in loadedUsers:
             logger.info(str(loadedUsers[user]))
         writeDurationFile(filename = durationFile, users = loadedUsers)
     elif args.view:
-        userDurations = readDurationFile(durationFile, userDurations)
-        for user in userDurations:
-            logger.info(str(userDurations[user]))
+        savedDurations = readDurationFile(durationFile)
+        for user in savedDurations:
+            logger.info(str(savedDurations[user]))
     else:
-        userDurations = readDurationFile(durationFile, userDurations)
+        savedDurations = readDurationFile(durationFile)
+        userDurations = { u:savedDurations[u] for u in userDurations }
         wusers = checkUsers(userDurations)
-        writeDurationFile(durationFile, userDurations)
+        savedDurations.update(userDurations)
+        writeDurationFile(durationFile, savedDurations)
         for user in wusers:
             disableUser(user)
-            if wusers[user].loginDuration.total_seconds() > logoutDuration:
+            if wusers[user].loginDuration > logoutDuration:
                 logUserOut(user)
 	
-    output_f.close()
+    # output_f.close()
