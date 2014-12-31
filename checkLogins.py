@@ -145,17 +145,23 @@ def checkUsers(chkUsers, warn = warnDuration, noMoreWarn = stopWarnDuration):
                 # logger.debug('{} loginTime: {}'.format(
                 #     chkUsers[username], loginTime))
                 storedTime = chkUsers[username].loginTime
-                if storedTime and (storedTime >= loginTime):
-                    loginTime = storedTime
+                lastLogin = chkUsers[username].lastLogin
+                storedDuration = chkUsers[username].loginDuration
                 if (storedTime == None) and (loginDuration > cronPeriod):
                     loginTime = checkTime
+                elif storedTime and (storedTime < loginTime) and \
+                     (loginDuration > cronPeriod):
+                    loginTime = checkTime
+                elif storedTime and (storedTime >= loginTime):
+                    loginTime = storedTime
+
                 loginDuration = checkTime-loginTime
-                lastLogin = chkUsers[username].lastLogin
-                if (lastLogin) and (lastLogin < loginTime) and \
-                   (chkUsers[username].loginDuration != None):
-                    chkUsers[username].lastDuration = chkUsers[username].loginDuration
-                    chkUsers[username].lastLogin = chkUsers[username].loginTime
-                    loginDuration += chkUsers[username].loginDuration
+
+                if (storedTime) and (storedTime < loginTime) and \
+                   (storedDuration != None):
+                    chkUsers[username].lastDuration = storedDuration
+                    chkUsers[username].lastLogin = storedTime
+                    loginDuration += storedDuration
                 elif chkUsers[username].lastDuration:
                     loginDuration += chkUsers[username].lastDuration
                 chkUsers[username].loginTime = loginTime
