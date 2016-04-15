@@ -42,8 +42,7 @@ logger.addHandler(fh)
 #####################################################################
 
 class UserDuration:
-    def __init__(self, username, date = None, duration = 0,
-                 lastLogin = None, lastDuration = None):
+    def __init__(self, username, date = None, duration = 0):
         self.username = username
         self.loginDuration = duration
         self.loginTime = date
@@ -299,8 +298,5 @@ if __name__ == '__main__':
             logger.info('{} {}'.format(user, wusers[user]))
             if wusers[user].loginDuration*cronPeriod > logoutDuration:
                 logUserOut(user)
-            else:
-                logger.info('{} only warned after {}'.format(
-                    user, wusers[user].loginDuration*cronPeriod))
 	
     # output_f.close()
