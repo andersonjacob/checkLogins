@@ -1,12 +1,13 @@
 #! /usr/bin/env python
 
-import psutil
 import datetime
 import subprocess
 import time
 import pickle
 import re
 import logging
+import dateutil.parser
+# from win32 import win32api
 
 logger = logging.getLogger("checkLogins")
 logger.setLevel(logging.DEBUG)
@@ -18,18 +19,19 @@ ch.setLevel(logging.DEBUG)
 logger.addHandler(ch)
 
 ####################################################################
-## numbers in seconds that are used for warnings and log outs of the
+## numbers that are used for warnings and log outs of the
 ## restricted users
 
-warnDuration = datetime.timedelta(minutes=40)
-logoutDuration = datetime.timedelta(minutes=45)
+warnDuration = datetime.timedelta(minutes=45)
+logoutDuration = datetime.timedelta(minutes=50)
 stopWarnDuration = warnDuration + datetime.timedelta(minutes=10)
 
 cronPeriod = datetime.timedelta(minutes=5)
 
-restrictedUsers = ['seth', 'grant', 'max', 'rose']
+restrictedUsers = ['grant', 'max', 'rose', 'seth']
+manualUsers = []
 #restrictedUsers = []
-allUsers = restrictedUsers + ['jake', 'candi', 'uande18']
+allUsers = restrictedUsers + manualUsers + ['jake', 'candi', 'uande18']
 durationFile = r'C:\checkLogins\restrictedDurations.pkl'
 
 fh = logging.FileHandler(r'C:\checkLogins\checkLogins.log')
@@ -40,24 +42,21 @@ logger.addHandler(fh)
 #####################################################################
 
 class UserDuration:
-    def __init__(self, username, date = None, duration = None,
+    def __init__(self, username, date = None, duration = 0,
                  lastLogin = None, lastDuration = None):
         self.username = username
         self.loginDuration = duration
         self.loginTime = date
-        self.lastLogin = lastLogin
-        self.lastDuration = lastDuration
 
     def __str__(self):
-        return 'Duration({0},{1},{2},{3},{4})'.format(
-            self.username, self.loginTime, self.loginDuration,
-            self.lastLogin, self.lastDuration)
+        return 'Duration({0},{1},{2})'.format(
+            self.username, self.loginTime, self.loginDuration)
 
 
 checkTime = datetime.datetime.now()
 # userDurations = dict(zip(restrictedUsers, [None]*len(restrictedUsers)))
 # allDurations = dict(zip(allUsers, [None]*len(allUsers)))
-userDurations = { u:UserDuration(u) for u in restrictedUsers }
+userDurations = { u:UserDuration(u) for u in restrictedUsers+manualUsers }
 allDurations = { u:UserDuration(u) for u in allUsers }
 
 def readDurationFile(filename = durationFile):
@@ -66,8 +65,8 @@ def readDurationFile(filename = durationFile):
         f = open(filename, 'rb')
         rdur = pickle.load(f)
         for u in rdur:
-            if (rdur[u].loginTime) and \
-               (rdur[u].loginTime.date() == datetime.date.today()):
+            if ((rdur[u].loginDuration > 0) and
+                (rdur[u].loginTime.date() == datetime.date.today())):
                 users[u] = rdur[u]
     except:
         pass
@@ -78,46 +77,47 @@ def writeDurationFile(filename = durationFile, users = userDurations):
     pickle.dump(users, f)
     return True
 
-def lastToDurations(users = userDurations):
-    logins = subprocess.check_output(['last','-F']).split('\n')
-    for login in logins:
-        words = login.split()
-        if len(words) < 8:
-            continue
-        user = words[0]
-        terminal = words[1]
-        if re.search(r':[0-9]', terminal) and user in users:
-            logger.debug(str(login.split()))
-            logintime = datetime.datetime.strptime(' '.join(words[4:8]),
-                                                   '%b %d %H:%M:%S %Y')
-            if (logintime.date() < datetime.date.today()):
-                return users
-            try:
-                logouttime = datetime.datetime.strptime(' '.join(words[10:14]),
-                                                   '%b %d %H:%M:%S %Y')
-            except ValueError:
-                if words[-2] == 'crash':
-                    logger.debug('{} after {}'.format(words[-2],words[-1]))
-                    logouttime = logintime + \
-                                 datetime.timedelta(hours=int(words[-1][1:3]),
-                                                    minutes=int(words[-1][4:6]))
-                else:
-                    logouttime = checkTime
-            logger.info('{} login: {} to {}'.format(user,logintime,logouttime))
-            if (not users[user].lastLogin):
-                users[user].lastLogin = logintime
-            if users[user].loginDuration:
-                users[user].loginDuration += (logouttime-logintime)
-            else:
-                users[user].loginDuration = logouttime-logintime
+# def lastToDurations(users = userDurations):
+#     logins = subprocess.check_output(['last','-F']).split('\n')
+#     for login in logins:
+#         words = login.split()
+#         if len(words) < 8:
+#             continue
+#         user = words[0]
+#         terminal = words[1]
+#         if re.search(r':[0-9]', terminal) and user in users:
+#             logger.debug(str(login.split()))
+#             logintime = datetime.datetime.strptime(' '.join(words[4:8]),
+#                                                    '%b %d %H:%M:%S %Y')
+#             if (logintime.date() < datetime.date.today()):
+#                 return users
+#             try:
+#                 logouttime = datetime.datetime.strptime(' '.join(words[10:14]),
+#                                                    '%b %d %H:%M:%S %Y')
+#             except ValueError:
+#                 if words[-2] == 'crash':
+#                     logger.debug('{} after {}'.format(words[-2],words[-1]))
+#                     logouttime = logintime + \
+#                                  datetime.timedelta(hours=int(words[-1][1:3]),
+#                                                     minutes=int(words[-1][4:6]))
+#                 else:
+#                     logouttime = checkTime
+#             logger.info('{} login: {} to {}'.format(user,logintime,logouttime))
+#             if (not users[user].lastLogin):
+#                 users[user].lastLogin = logintime
+#             if users[user].loginDuration:
+#                 users[user].loginDuration += (logouttime-logintime)
+#             else:
+#                 users[user].loginDuration = logouttime-logintime
 
-    return users
+#     return users
 
 def playNotification(user = None, host = None):
     subprocess.call([
-        'powershell', '-c', 
+        'powershell', '-c',
         '(New-Object Media.SoundPlayer "C:\Windows\Media\chord.wav").PlaySync();'
     ])
+    # win32api.Beep(880, 750)
 
 def displayNotificationWindow(user = None, host = None):
     msgText = 'This is your warning.  You will be logged out ' +\
@@ -130,42 +130,30 @@ def displayNotificationWindow(user = None, host = None):
     #                  "Save your work now and logout to " +\
     #                  "prevent data loss.'", username])
     subprocess.call(['msg', user, '/time:10', msgText])
+    #return win32api.MessageBox(0, msgText, "Logout Notification")
 
 def checkUsers(chkUsers, warn = warnDuration, noMoreWarn = stopWarnDuration):
     warnedUsers = {}
-    for user in psutil.users():
+    for user in windows_users():
         # logger.debug(str(user))
-        username = user.name.lower()
-        if (not user.terminal) or re.search(r':[0-9]', user.terminal):
-            loginTime = datetime.datetime.fromtimestamp(user.started)
+        username = user.get('name', '').lower()
+        if user.get('state','').lower() == 'active':
+            loginTime = dateutil.parser.parse(user.get('started', ''))
             loginDuration = checkTime - loginTime
-            logger.debug('{} logged in at {} for {}'.format(
-                username, loginTime, loginDuration))
+            # logger.debug('{} logged in at {} current duration {}'.format(
+            #     username, loginTime, loginDuration))
             if username in chkUsers:
                 # logger.debug('{} loginTime: {}'.format(
                 #     chkUsers[username], loginTime))
-                storedTime = chkUsers[username].loginTime
-                lastLogin = chkUsers[username].lastLogin
+                if loginTime.date() != datetime.date.today():
+                    loginTime = checkTime
+
                 storedDuration = chkUsers[username].loginDuration
-                if (storedTime == None) and (loginDuration > cronPeriod):
-                    loginTime = checkTime
-                elif storedTime and (storedTime < loginTime) and \
-                     (loginDuration > cronPeriod):
-                    loginTime = checkTime
-                elif storedTime and (storedTime >= loginTime):
-                    loginTime = storedTime
 
-                loginDuration = checkTime-loginTime
+                loginDuration = (storedDuration + 1)*cronPeriod
 
-                if (storedTime) and (storedTime < loginTime) and \
-                   (storedDuration != None):
-                    chkUsers[username].lastDuration = storedDuration
-                    chkUsers[username].lastLogin = storedTime
-                    loginDuration += storedDuration
-                elif chkUsers[username].lastDuration:
-                    loginDuration += chkUsers[username].lastDuration
                 chkUsers[username].loginTime = loginTime
-                chkUsers[username].loginDuration = loginDuration
+                chkUsers[username].loginDuration = storedDuration+1
                 logger.info('user {} logged in for {}'.format(
                     username, loginDuration))
                 if (loginDuration > warn):
@@ -203,13 +191,32 @@ def enableUsers(users = restrictedUsers):
     writeDurationFile(durationFile, userDurations)
 
 def findUserSession(user):
-    sessions = subprocess.check_output(['qwinsta'], 
-                                       universal_newlines = True).split()
+    for cuser in windows_users():
+        if cuser.get('name','').lower() == user:
+            return cuser['session']
+    logger.info('user: {} session not found'.format(user))
+    return ''
+
+def windows_users():
     try:
-        return sessions[sessions.index(user)+1]
-    except ValueError:
-        logger.info('user: {} session not found'.format(user))
-        return ''
+        users = subprocess.check_output(['query', 'user'], 
+                                        universal_newlines=True)
+    except subprocess.CalledProcessError as e:
+        users = e.output
+    users = users.split('\n')
+    header = users.pop(0)
+    logged_in_users = []
+    for l in users:
+        if len(l) >= len(header):
+            username = l[header.find('USERNAME'):header.find('SESSIONNAME')].strip()
+            session_id = l[header.find('ID'):header.find('STATE')].strip()
+            state = l[header.find('STATE'):header.find('IDLE TIME')].strip()
+            logon_time = l[header.find('LOGON TIME'):].strip()
+            logged_in_users.append({'name': username, 'session': session_id, 
+                                    'state': state, 'started': logon_time})
+    return logged_in_users
+
+
 
 def logUserOut(user):
     sigs = ['-15', '-15', '-9', '-9']
@@ -227,8 +234,8 @@ def logUserOut(user):
         sigi += 1
 
 def userLoggedIn(user):
-    for cuser in psutil.get_users():
-        if cuser.name.lower() == user:
+    for cuser in windows_users():
+        if cuser.get('name','').lower() == user:
             logger.info('{} still logged in {}'.format(user, cuser))
             return True
     logger.info('{} is gone.'.format(user))
@@ -247,8 +254,6 @@ if __name__ == '__main__':
                         help='users to disable.  If none specified sidable all')
     parser.add_argument('--all', action='store_true',
                         help='check all users')
-    parser.add_argument('--last', action='store_true',
-                        help='use last command to determine durations for today.')
     parser.add_argument('--view', action='store_true',
                         help='use last command to determine durations for today.')
     args = parser.parse_args()
@@ -265,7 +270,7 @@ if __name__ == '__main__':
             theUsers = args.enable
         enableUsers(theUsers)
     elif args.disable != None:
-        theUsers = restrictedUsers
+        theUsers = restrictedUsers + manualUsers
         if len(args.disable) > 0:
             theUsers = args.disable
         disableUsers(theUsers)
@@ -279,11 +284,6 @@ if __name__ == '__main__':
             logger.info(str(allDurations[user]))
             savedDurations.update(allDurations)
         writeDurationFile(durationFile, savedDurations)
-    elif args.last:
-        loadedUsers = lastToDurations()
-        for user in loadedUsers:
-            logger.info(str(loadedUsers[user]))
-        writeDurationFile(filename = durationFile, users = loadedUsers)
     elif args.view:
         savedDurations = readDurationFile(durationFile)
         for user in savedDurations:
@@ -296,7 +296,11 @@ if __name__ == '__main__':
         writeDurationFile(durationFile, savedDurations)
         for user in wusers:
             disableUser(user)
-            if wusers[user].loginDuration > logoutDuration:
+            logger.info('{} {}'.format(user, wusers[user]))
+            if wusers[user].loginDuration*cronPeriod > logoutDuration:
                 logUserOut(user)
+            else:
+                logger.info('{} only warned after {}'.format(
+                    user, wusers[user].loginDuration*cronPeriod))
 	
     # output_f.close()
