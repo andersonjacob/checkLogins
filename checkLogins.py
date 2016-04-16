@@ -7,7 +7,8 @@ import pickle
 import re
 import logging
 import dateutil.parser
-# from win32 import win32api
+from win32 import win32api
+import psutil
 
 logger = logging.getLogger("checkLogins")
 logger.setLevel(logging.DEBUG)
@@ -112,11 +113,11 @@ def writeDurationFile(filename = durationFile, users = userDurations):
 #     return users
 
 def playNotification(user = None, host = None):
-    subprocess.call([
-        'powershell', '-c',
-        '(New-Object Media.SoundPlayer "C:\Windows\Media\chord.wav").PlaySync();'
-    ])
-    # win32api.Beep(880, 750)
+    #subprocess.call([
+    #    'powershell', '-c',
+    #    '(New-Object Media.SoundPlayer "C:\Windows\Media\chord.wav").PlaySync();'
+    #])
+    win32api.Beep(880, 750)
 
 def displayNotificationWindow(user = None, host = None):
     msgText = 'This is your warning.  You will be logged out ' +\
@@ -128,8 +129,11 @@ def displayNotificationWindow(user = None, host = None):
     #                  "soon." +\
     #                  "Save your work now and logout to " +\
     #                  "prevent data loss.'", username])
-    subprocess.call(['msg', user, '/time:10', msgText])
-    #return win32api.MessageBox(0, msgText, "Logout Notification")
+    try:
+        subprocess.call(['msg', user, '/time:10', msgText])
+    except FileNotFoundError:
+        return win32api.MessageBox(0, msgText, "Logout Notification", 
+                                   0x00001000 | 0x00000030 | 0x00200000)
 
 def checkUsers(chkUsers, warn = warnDuration, noMoreWarn = stopWarnDuration):
     warnedUsers = {}
@@ -202,6 +206,10 @@ def windows_users():
                                         universal_newlines=True)
     except subprocess.CalledProcessError as e:
         users = e.output
+    except FileNotFoundError:
+        users = psutil.users()
+        return [{'name': u.name, 'session': 1,
+                 'state': 'Active', 'started': str(checkTime)} for u in users]
     users = users.split('\n')
     header = users.pop(0)
     logged_in_users = []
@@ -224,11 +232,7 @@ def logUserOut(user):
     while userLoggedIn(user) and (sigi < len(sigs)):
         logger.info("sending signal {} to user {}".format(sigs[sigi],user))
         # subprocess.call(['pkill', sigs[sigi], '-u', user])
-        if sigs[sigi] == sigs[0]:
-            session = findUserSession(user)
-            subprocess.call(['logoff', str(session)])
-        else:
-            subprocess.call(['shutdown','/l','/t', '10'])
+        subprocess.call(['shutdown','/l'])
         time.sleep(30)
         sigi += 1
 
@@ -255,6 +259,8 @@ if __name__ == '__main__':
                         help='check all users')
     parser.add_argument('--view', action='store_true',
                         help='use last command to determine durations for today.')
+    parser.add_argument('--msg', action='store_true',
+                        help='display the message and play the sound.')
     args = parser.parse_args()
 	
     import sys
@@ -290,6 +296,9 @@ if __name__ == '__main__':
         savedDurations = readDurationFile(durationFile)
         for user in savedDurations:
             logger.info(str(savedDurations[user]))
+    elif args.msg:
+        playNotification('jake')
+        displayNotificationWindow('jake')
     else:
         savedDurations = readDurationFile(durationFile)
         userDurations = { u:savedDurations[u] for u in userDurations }
