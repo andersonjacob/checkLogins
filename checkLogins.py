@@ -262,7 +262,10 @@ if __name__ == '__main__':
     # sys.stdout = output_f
     # sys.stderr = output_f
 
-    # logger.debug('running checkLogins')
+    logger.debug('currently logged in:')
+    for user in windows_users():
+        logger.debug('{}'.format(user))
+
     if args.enable != None:
         theUsers = restrictedUsers
         if len(args.enable) > 0:
