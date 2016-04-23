@@ -7,7 +7,7 @@ import pickle
 import re
 import logging
 import dateutil.parser
-from win32 import win32api
+from win32 import win32api, win32ts
 import psutil
 
 logger = logging.getLogger("checkLogins")
@@ -132,8 +132,11 @@ def displayNotificationWindow(user = None, host = None):
     try:
         subprocess.call(['msg', user, '/time:10', msgText])
     except FileNotFoundError:
-        return win32api.MessageBox(0, msgText, "Logout Notification", 
-                                   0x00001000 | 0x00000030 | 0x00200000)
+        win32ts.WTSSendMessage(win32ts.WTS_CURRENT_SERVER_HANDLE, 
+                               findUserSession(user), 'Logout Notification',
+                               msgText, Wait=False)
+        # return win32api.MessageBox(0, msgText, "Logout Notification", 
+                                   # 0x00001000 | 0x00000030 | 0x00200000)
 
 def checkUsers(chkUsers, warn = warnDuration, noMoreWarn = stopWarnDuration):
     warnedUsers = {}
@@ -201,40 +204,32 @@ def findUserSession(user):
     return ''
 
 def windows_users():
-    try:
-        users = subprocess.check_output(['query', 'user'], 
-                                        universal_newlines=True)
-    except subprocess.CalledProcessError as e:
-        users = e.output
-    except FileNotFoundError:
-        users = psutil.users()
-        return [{'name': u.name, 'session': 1,
-                 'state': 'Active', 'started': str(checkTime)} for u in users]
-    users = users.split('\n')
-    header = users.pop(0)
+    user_sessions = win32ts.WTSEnumerateSessions()
     logged_in_users = []
-    for l in users:
-        if len(l) >= len(header):
-            username = l[header.find('USERNAME'):header.find('SESSIONNAME')].strip()
-            session_id = l[header.find('ID'):header.find('STATE')].strip()
-            state = l[header.find('STATE'):header.find('IDLE TIME')].strip()
-            logon_time = l[header.find('LOGON TIME'):].strip()
-            logged_in_users.append({'name': username, 'session': session_id, 
-                                    'state': state, 'started': logon_time})
+    for s in user_sessions:
+        username = win32ts.WTSQuerySessionInformation(
+            win32ts.WTS_CURRENT_SERVER_HANDLE,
+            s['SessionId'], 5).strip()
+        if len(username) > 0:
+            logged_in_users.append({
+                'name': username,
+                'session': s['SessionId'],
+                'state': 'Active' if s['State'] == 0 else 'Disc',
+                'started': str(checkTime)})
     return logged_in_users
 
 
-
 def logUserOut(user):
-    sigs = ['-15', '-15', '-9', '-9']
-    logger.info('logging out {}'.format(user))
+    # sigs = ['-15', '-15', '-9', '-9']
     sigi = 0
-    while userLoggedIn(user) and (sigi < len(sigs)):
-        logger.info("sending signal {} to user {}".format(sigs[sigi],user))
-        # subprocess.call(['pkill', sigs[sigi], '-u', user])
-        subprocess.call(['shutdown','/l'])
+    usid = findUserSession(user)
+    while userLoggedIn(user) and (sigi < 4):
+        logger.info('logging out {}'.format(user))
+        win32ts.WTSLogoffSession(win32ts.WTS_CURRENT_SERVER_HANDLE,
+            usid, False)
         time.sleep(30)
         sigi += 1
+
 
 def userLoggedIn(user):
     for cuser in windows_users():
@@ -243,6 +238,7 @@ def userLoggedIn(user):
             return True
     logger.info('{} is gone.'.format(user))
     return False
+
 
 if __name__ == '__main__':
     import argparse
