@@ -9,6 +9,7 @@ import logging
 import dateutil.parser
 from win32 import win32api, win32ts
 import psutil
+import os
 
 logger = logging.getLogger("checkLogins")
 logger.setLevel(logging.DEBUG)
@@ -32,10 +33,11 @@ cronPeriod = datetime.timedelta(minutes=5)
 restrictedUsers = ['grant', 'max', 'rose', 'seth']
 manualUsers = []
 #restrictedUsers = []
-allUsers = restrictedUsers + manualUsers + ['jake', 'candi', 'uande18']
-durationFile = r'C:\checkLogins\restrictedDurations.pkl'
+allUsers = restrictedUsers + manualUsers + ['jake', 'candi']
+durationFile = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'restrictedDurations.pkl')
+# print(durationFile)
 
-fh = logging.FileHandler(r'C:\checkLogins\checkLogins.log')
+fh = logging.FileHandler(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'checkLogins.log'))
 fh.setFormatter(formatter)
 fh.setLevel(logging.DEBUG)
 logger.addHandler(fh)
@@ -43,14 +45,14 @@ logger.addHandler(fh)
 #####################################################################
 
 class UserDuration:
-    def __init__(self, username, date = None, duration = 0):
+    def __init__(self, username, duration = datetime.timedelta(minutes=0), date = None):
         self.username = username
         self.loginDuration = duration
-        self.loginTime = date
+        self.lastCheck = date
 
     def __str__(self):
         return 'Duration({0},{1},{2})'.format(
-            self.username, self.loginTime, self.loginDuration)
+            self.username, self.loginDuration, self.lastCheck)
 
 
 checkTime = datetime.datetime.now()
@@ -62,55 +64,21 @@ allDurations = { u:UserDuration(u) for u in allUsers }
 def readDurationFile(filename = durationFile):
     users = allDurations
     try:
-        f = open(filename, 'rb')
-        rdur = pickle.load(f)
-        for u in rdur:
-            if ((rdur[u].loginDuration > 0) and
-                (rdur[u].loginTime.date() == datetime.date.today())):
-                users[u] = rdur[u]
+        with open(filename, 'rb') as f:
+            rdur = pickle.load(f)
+            for u in rdur:
+                # print(str(rdur[u]))
+                if ((rdur[u].lastCheck is not None) and
+                    (rdur[u].lastCheck.date() == datetime.date.today())):
+                    users[u] = rdur[u]
     except:
-        pass
+        raise
     return users
 
 def writeDurationFile(filename = durationFile, users = userDurations):
     f = open(filename, 'wb')
     pickle.dump(users, f)
     return True
-
-# def lastToDurations(users = userDurations):
-#     logins = subprocess.check_output(['last','-F']).split('\n')
-#     for login in logins:
-#         words = login.split()
-#         if len(words) < 8:
-#             continue
-#         user = words[0]
-#         terminal = words[1]
-#         if re.search(r':[0-9]', terminal) and user in users:
-#             logger.debug(str(login.split()))
-#             logintime = datetime.datetime.strptime(' '.join(words[4:8]),
-#                                                    '%b %d %H:%M:%S %Y')
-#             if (logintime.date() < datetime.date.today()):
-#                 return users
-#             try:
-#                 logouttime = datetime.datetime.strptime(' '.join(words[10:14]),
-#                                                    '%b %d %H:%M:%S %Y')
-#             except ValueError:
-#                 if words[-2] == 'crash':
-#                     logger.debug('{} after {}'.format(words[-2],words[-1]))
-#                     logouttime = logintime + \
-#                                  datetime.timedelta(hours=int(words[-1][1:3]),
-#                                                     minutes=int(words[-1][4:6]))
-#                 else:
-#                     logouttime = checkTime
-#             logger.info('{} login: {} to {}'.format(user,logintime,logouttime))
-#             if (not users[user].lastLogin):
-#                 users[user].lastLogin = logintime
-#             if users[user].loginDuration:
-#                 users[user].loginDuration += (logouttime-logintime)
-#             else:
-#                 users[user].loginDuration = logouttime-logintime
-
-#     return users
 
 def playNotification(user = None, host = None):
     #subprocess.call([
@@ -143,32 +111,28 @@ def checkUsers(chkUsers, warn = warnDuration, noMoreWarn = stopWarnDuration):
     for user in windows_users():
         # logger.debug(str(user))
         username = user.get('name', '').lower()
-        if user.get('state','').lower() == 'active':
-            loginTime = dateutil.parser.parse(user.get('started', ''))
-            loginDuration = checkTime - loginTime
-            # logger.debug('{} logged in at {} current duration {}'.format(
-            #     username, loginTime, loginDuration))
-            if username in chkUsers:
-                # logger.debug('{} loginTime: {}'.format(
-                #     chkUsers[username], loginTime))
-                if loginTime.date() != datetime.date.today():
-                    loginTime = checkTime
+        if (user.get('state','').lower() == 'active'
+            and username in chkUsers):
+            lastCheck = chkUsers[username].lastCheck
+            if (lastCheck is None) or (lastCheck.date() != datetime.date.today()):
+                lastCheck = checkTime
 
-                storedDuration = chkUsers[username].loginDuration
+            storedDuration = chkUsers[username].loginDuration
 
-                loginDuration = (storedDuration + 1)*cronPeriod
+            loginDuration = storedDuration + min(cronPeriod, 
+                max(checkTime-lastCheck, datetime.timedelta(minutes=0)))
 
-                chkUsers[username].loginTime = loginTime
-                chkUsers[username].loginDuration = storedDuration+1
-                logger.info('user {} logged in for {}'.format(
-                    username, loginDuration))
-                if (loginDuration > warn):
-                    # if (loginDuration.total_seconds() < noMoreWarn):
-                    logger.warning('{} has been warned after {}'.format(
-                        username,loginDuration))
-                    playNotification(username)
-                    displayNotificationWindow(username)
-                    warnedUsers[username] = chkUsers[username]
+            chkUsers[username].lastCheck = checkTime
+            chkUsers[username].loginDuration = loginDuration
+            logger.info('user {} logged in for {}'.format(
+                username, loginDuration))
+            if (loginDuration > warn):
+                # if (loginDuration.total_seconds() < noMoreWarn):
+                logger.warning('{} has been warned after {}'.format(
+                    username,loginDuration))
+                playNotification(username)
+                displayNotificationWindow(username)
+                warnedUsers[username] = chkUsers[username]
     return warnedUsers
 
 def disableUser(user):
@@ -214,8 +178,7 @@ def windows_users():
             logged_in_users.append({
                 'name': username,
                 'session': s['SessionId'],
-                'state': 'Active' if s['State'] == 0 else 'Disc',
-                'started': str(checkTime)})
+                'state': 'Active' if s['State'] == 0 else 'Disc'})
     return logged_in_users
 
 
@@ -285,8 +248,10 @@ if __name__ == '__main__':
             logger.info(str(allDurations[user]))
         checkUsers(allDurations, warnDuration, datetime.timedelta(hours=24))
         for user in allDurations:
-            logger.info(str(allDurations[user]))
+            # logger.info(str(allDurations[user]))
             savedDurations.update(allDurations)
+        for user in savedDurations:
+            logger.info(str(savedDurations[user]))
         writeDurationFile(durationFile, savedDurations)
     elif args.view:
         savedDurations = readDurationFile(durationFile)
