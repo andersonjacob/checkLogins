@@ -71,13 +71,15 @@ def readDurationFile(filename = durationFile):
                 if ((rdur[u].lastCheck is not None) and
                     (rdur[u].lastCheck.date() == datetime.date.today())):
                     users[u] = rdur[u]
+    except FileNotFoundError:
+        pass
     except:
         raise
     return users
 
 def writeDurationFile(filename = durationFile, users = userDurations):
-    f = open(filename, 'wb')
-    pickle.dump(users, f)
+    with open(filename, 'wb') as f:
+        pickle.dump(users, f)
     return True
 
 def playNotification(user = None, host = None):
@@ -190,7 +192,7 @@ def logUserOut(user):
         logger.info('logging out {}'.format(user))
         win32ts.WTSLogoffSession(win32ts.WTS_CURRENT_SERVER_HANDLE,
             usid, False)
-        time.sleep(30)
+        time.sleep(60)
         sigi += 1
 
 
@@ -217,7 +219,7 @@ if __name__ == '__main__':
     parser.add_argument('--all', action='store_true',
                         help='check all users')
     parser.add_argument('--view', action='store_true',
-                        help='use last command to determine durations for today.')
+                        help='Show values that have been stored so far.')
     parser.add_argument('--msg', action='store_true',
                         help='display the message and play the sound.')
     args = parser.parse_args()
@@ -227,9 +229,9 @@ if __name__ == '__main__':
     # sys.stdout = output_f
     # sys.stderr = output_f
 
-    logger.debug('currently logged in:')
-    for user in windows_users():
-        logger.debug('{}'.format(user))
+    # logger.debug('currently logged in:')
+    # for user in windows_users():
+    #     logger.debug('{}'.format(user))
 
     if args.enable != None:
         theUsers = restrictedUsers
