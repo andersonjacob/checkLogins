@@ -220,6 +220,8 @@ if __name__ == '__main__':
                         help='check all users')
     parser.add_argument('--view', action='store_true',
                         help='Show values that have been stored so far.')
+    parser.add_argument('--logout', metavar='user', nargs=1,
+                        help='Logout given user.')
     parser.add_argument('--msg', action='store_true',
                         help='display the message and play the sound.')
     args = parser.parse_args()
@@ -262,6 +264,9 @@ if __name__ == '__main__':
     elif args.msg:
         playNotification('jake')
         displayNotificationWindow('jake')
+    elif args.logout:
+        logger.info('{} {}'.format(args.logout, 'logging out'))
+        logUserOut(args.logout)
     else:
         savedDurations = readDurationFile(durationFile)
         userDurations = { u:savedDurations[u] for u in userDurations }
@@ -271,7 +276,7 @@ if __name__ == '__main__':
         for user in wusers:
             disableUser(user)
             logger.info('{} {}'.format(user, wusers[user]))
-            if wusers[user].loginDuration*cronPeriod > logoutDuration:
+            if wusers[user].loginDuration > logoutDuration:
                 logUserOut(user)
 	
     # output_f.close()
