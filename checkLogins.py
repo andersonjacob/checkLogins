@@ -12,13 +12,6 @@ import psutil
 import os
 
 logger = logging.getLogger("checkLogins")
-logger.setLevel(logging.DEBUG)
-formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s",
-                              datefmt="%Y-%m-%d %H:%M:%S")
-ch = logging.StreamHandler()
-ch.setFormatter(formatter)
-ch.setLevel(logging.DEBUG)
-logger.addHandler(ch)
 
 ####################################################################
 ## numbers that are used for warnings and log outs of the
@@ -36,11 +29,6 @@ manualUsers = []
 allUsers = restrictedUsers + manualUsers + ['jake', 'candi']
 durationFile = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'restrictedDurations.pkl')
 # print(durationFile)
-
-fh = logging.FileHandler(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'checkLogins.log'))
-fh.setFormatter(formatter)
-fh.setLevel(logging.DEBUG)
-logger.addHandler(fh)
 
 #####################################################################
 
@@ -104,7 +92,9 @@ def displayNotificationWindow(user = None, host = None):
     except FileNotFoundError:
         win32ts.WTSSendMessage(win32ts.WTS_CURRENT_SERVER_HANDLE, 
                                findUserSession(user), 'Logout Notification',
-                               msgText, Wait=False)
+                               msgText,
+                               Style=0x00000000 | 0x00000030 | 0x00001000,
+                               Timeout=15, Wait=False)
         # return win32api.MessageBox(0, msgText, "Logout Notification", 
                                    # 0x00001000 | 0x00000030 | 0x00200000)
 
@@ -224,6 +214,8 @@ if __name__ == '__main__':
                         help='Logout given user.')
     parser.add_argument('--msg', action='store_true',
                         help='display the message and play the sound.')
+    parser.add_argument('--verbose', action='store_true',
+                        help='more verbose logging')
     args = parser.parse_args()
 	
     import sys
@@ -234,6 +226,21 @@ if __name__ == '__main__':
     # logger.debug('currently logged in:')
     # for user in windows_users():
     #     logger.debug('{}'.format(user))
+    llevel = logging.INFO
+    if args.verbose:
+        llevel = logging.DEBUG
+    logger.setLevel(llevel)
+    formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s",
+                                  datefmt="%Y-%m-%d %H:%M:%S")
+    ch = logging.StreamHandler()
+    ch.setFormatter(formatter)
+    ch.setLevel(llevel)
+    logger.addHandler(ch)
+
+    fh = logging.FileHandler(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'checkLogins.log'))
+    fh.setFormatter(formatter)
+    fh.setLevel(llevel)
+    logger.addHandler(fh)
 
     if args.enable != None:
         theUsers = restrictedUsers
