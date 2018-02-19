@@ -3,13 +3,11 @@
 import datetime
 import subprocess
 import time
-import pickle
-import re
 import logging
-import dateutil.parser
+from dateutil import parser as dparser
 from win32 import win32api, win32ts
-import psutil
 import os
+import sqlite3
 
 logger = logging.getLogger("checkLogins")
 
@@ -17,65 +15,71 @@ logger = logging.getLogger("checkLogins")
 ## numbers that are used for warnings and log outs of the
 ## restricted users
 
-warnDuration = datetime.timedelta(minutes=45)
-logoutDuration = datetime.timedelta(minutes=50)
-stopWarnDuration = warnDuration + datetime.timedelta(minutes=10)
+warnDuration = 6
+cronPeriod = 5
+replenish = 50
 
-cronPeriod = datetime.timedelta(minutes=5)
-
-restrictedUsers = ['grant', 'max', 'rose', 'seth']
-manualUsers = []
-#restrictedUsers = []
-allUsers = restrictedUsers + manualUsers + ['jake', 'candi']
-durationFile = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'restrictedDurations.pkl')
+durationFile = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'checkLogins.db')
 # print(durationFile)
 
 #####################################################################
 
 class UserDuration:
-    def __init__(self, username, duration = datetime.timedelta(minutes=0), date = None):
+    def __init__(self, username, last_active=datetime.datetime.now(), minutes_remaining=replenish):
         self.username = username
-        self.loginDuration = duration
-        self.lastCheck = date
+        self.minutes_remaining = minutes_remaining
+        self.last_active = last_active
 
     def __str__(self):
         return 'Duration({0},{1},{2})'.format(
-            self.username, self.loginDuration, self.lastCheck)
+            self.username, self.last_active, self.minutes_remaining)
 
 
-checkTime = datetime.datetime.now()
-# userDurations = dict(zip(restrictedUsers, [None]*len(restrictedUsers)))
-# allDurations = dict(zip(allUsers, [None]*len(allUsers)))
-userDurations = { u:UserDuration(u) for u in restrictedUsers+manualUsers }
-allDurations = { u:UserDuration(u) for u in allUsers }
+def connectdb(filename = durationFile):
+    if hasattr(connectdb, 'conn'):
+        return getattr(connectdb, 'conn')
+    
+    conn = sqlite3.connect(filename)
+    with open('db_initialize.sql','r') as sql:
+        conn.executescript(sql.read())
+    conn.commit()
+    conn.row_factory = sqlite3.Row
+    setattr(connectdb, 'conn', conn)
+    return conn
+
 
 def readDurationFile(filename = durationFile):
-    users = allDurations
-    try:
-        with open(filename, 'rb') as f:
-            rdur = pickle.load(f)
-            for u in rdur:
-                # print(str(rdur[u]))
-                if ((rdur[u].lastCheck is not None) and
-                    (rdur[u].lastCheck.date() == datetime.date.today())):
-                    users[u] = rdur[u]
-    except FileNotFoundError:
-        pass
-    except:
-        raise
+    conn = connectdb(filename)
+    users = {}
+    curs = conn.execute('select username, last_active, minutes_remaining from restricted_users;')
+    for row in curs:
+        logger.debug(tuple(row))
+        users[row['username']] = UserDuration(row['username'],
+                                              dparser.parse(row['last_active']),
+                                              row['minutes_remaining'])
     return users
 
-def writeDurationFile(filename = durationFile, users = userDurations):
-    with open(filename, 'wb') as f:
-        pickle.dump(users, f)
+
+def writeDurationFile(users, filename = durationFile):
+    conn = connectdb(filename)
+    rows = [ (u.last_active, u.minutes_remaining, u.username) for u in users.values() ]
+    with conn:
+        conn.executemany(('update restricted_users '
+                          'set (last_active,minutes_remaining) = (?,?) '
+                          'where username = ?'), rows)
     return True
+
 
 def playNotification(user = None, host = None):
     #subprocess.call([
     #    'powershell', '-c',
     #    '(New-Object Media.SoundPlayer "C:\Windows\Media\chord.wav").PlaySync();'
     #])
-    win32api.Beep(880, 750)
+    try:
+        win32api.Beep(880, 750)
+    except:
+        logger.info('cannot Beep')
+
 
 def displayNotificationWindow(user = None, host = None):
     msgText = 'This is your warning.  You will be logged out ' +\
@@ -90,6 +94,7 @@ def displayNotificationWindow(user = None, host = None):
     try:
         subprocess.call(['msg', user, '/time:10', msgText])
     except FileNotFoundError:
+        logger.info('fallback message')
         win32ts.WTSSendMessage(win32ts.WTS_CURRENT_SERVER_HANDLE, 
                                findUserSession(user), 'Logout Notification',
                                msgText,
@@ -98,30 +103,24 @@ def displayNotificationWindow(user = None, host = None):
         # return win32api.MessageBox(0, msgText, "Logout Notification", 
                                    # 0x00001000 | 0x00000030 | 0x00200000)
 
-def checkUsers(chkUsers, warn = warnDuration, noMoreWarn = stopWarnDuration):
+
+def checkUsers(chkUsers, warn = warnDuration):
+    checkTime = datetime.datetime.now()
     warnedUsers = {}
     for user in windows_users():
         # logger.debug(str(user))
         username = user.get('name', '').lower()
         if (user.get('state','').lower() == 'active'
             and username in chkUsers):
-            lastCheck = chkUsers[username].lastCheck
-            if (lastCheck is None) or (lastCheck.date() != datetime.date.today()):
-                lastCheck = checkTime
-
-            storedDuration = chkUsers[username].loginDuration
-
-            loginDuration = storedDuration + min(cronPeriod, 
-                max(checkTime-lastCheck, datetime.timedelta(minutes=0)))
-
-            chkUsers[username].lastCheck = checkTime
-            chkUsers[username].loginDuration = loginDuration
-            logger.info('user {} logged in for {}'.format(
-                username, loginDuration))
-            if (loginDuration > warn):
-                # if (loginDuration.total_seconds() < noMoreWarn):
-                logger.warning('{} has been warned after {}'.format(
-                    username,loginDuration))
+            elapsed_minutes = min((checkTime - chkUsers[username].last_active)/datetime.timedelta(minutes=1),
+                                  cronPeriod)
+            chkUsers[username].minutes_remaining = max(0, chkUsers[username].minutes_remaining - int(elapsed_minutes))
+            chkUsers[username].last_active = checkTime
+            logger.info('user {} has used {:.3f} minutes for {} minutes remaining'.format(
+                username, elapsed_minutes, chkUsers[username].minutes_remaining))
+            if chkUsers[username].minutes_remaining <= warn:
+                logger.warning('{} has been warned with {} remaing'.format(
+                    username,chkUsers[username].minutes_remaining))
                 playNotification(username)
                 displayNotificationWindow(username)
                 warnedUsers[username] = chkUsers[username]
@@ -130,7 +129,10 @@ def checkUsers(chkUsers, warn = warnDuration, noMoreWarn = stopWarnDuration):
 def disableUser(user):
     logger.info('locking user: {}'.format(user))
     # subprocess.call(['passwd', '-l', user])
-    subprocess.call(['net', 'user', user, '/active:no'])
+    ret = subprocess.call(['net', 'user', user, '/active:no'])
+    if ret != 0:
+        logger.warning('failed to disable user {}: {}'.format(user, ret))
+    return ret
 
 def disableUsers(users):
     for user in users:
@@ -139,18 +141,22 @@ def disableUsers(users):
 def enableUser(user):
     logger.info('unlocking user: {}'.format(user))
     # subprocess.call(['passwd', '-u', user])
-    subprocess.call(['net', 'user', user, '/active:yes'])
+    ret = subprocess.call(['net', 'user', user, '/active:yes'])
+    if ret != 0:
+        logger.warning('failed to enable user {}: {}'.format(user, ret))
+    return ret
 
-def enableUsers(users = restrictedUsers):
-    global userDurations
-    userDurations = readDurationFile(durationFile)
+def enableUsers(users):
+    userDurations = readDurationFile()
     for user in users:
-        enableUser(user)
-        try:
-            userDurations[user] = UserDuration(user)
-        except:
-            pass
-    writeDurationFile(durationFile, userDurations)
+        ret = enableUser(user)
+        if ret==0:
+            try:
+                userDurations[user].minutes_remaining = min(
+                    180, userDurations[user].minutes_remaining + replenish)
+            except:
+                pass
+    writeDurationFile(userDurations)
 
 def findUserSession(user):
     for cuser in windows_users():
@@ -174,6 +180,14 @@ def windows_users():
     return logged_in_users
 
 
+def log_windows_users():
+    conn = connectdb()
+    log_time = datetime.datetime.now()
+    pars = [ (u['name'], log_time, u['state']) for u in windows_users()]
+    with conn:
+        conn.executemany(('insert into user_log values (?, ?, ?)'), pars)
+
+
 def logUserOut(user):
     # sigs = ['-15', '-15', '-9', '-9']
     sigi = 0
@@ -195,6 +209,23 @@ def userLoggedIn(user):
     return False
 
 
+def add_user(user):
+    conn = connectdb()
+    pars = (user,datetime.date.today()-datetime.timedelta(days=1),replenish,1)
+    print(pars)
+    try:
+        with conn:
+            conn.execute('insert into restricted_users values (?,?,?,?)',pars)
+    except sqlite3.IntegrityError:
+        pass
+
+def restricted_users(min_stat=1):
+    conn = connectdb()
+    return [ r['username'] for r in conn.execute(
+        'select username from restricted_users where manual_enable>=?', 
+        (min_stat,)) ]
+
+
 if __name__ == '__main__':
     import argparse
     desc = """Monitor and enforce quotas.\n
@@ -210,8 +241,10 @@ if __name__ == '__main__':
                         help='check all users')
     parser.add_argument('--view', action='store_true',
                         help='Show values that have been stored so far.')
-    parser.add_argument('--logout', metavar='user', nargs=1,
+    parser.add_argument('--logout', metavar='user', #nargs=1,
                         help='Logout given user.')
+    parser.add_argument('--add', metavar='user', #nargs=1,
+                        help='Add restricted user.')
     parser.add_argument('--msg', action='store_true',
                         help='display the message and play the sound.')
     parser.add_argument('--verbose', action='store_true',
@@ -242,48 +275,52 @@ if __name__ == '__main__':
     fh.setLevel(llevel)
     logger.addHandler(fh)
 
+    log_windows_users()
+
     if args.enable != None:
-        theUsers = restrictedUsers
+        theUsers = restricted_users()
         if len(args.enable) > 0:
             theUsers = args.enable
         enableUsers(theUsers)
     elif args.disable != None:
-        theUsers = restrictedUsers + manualUsers
+        theUsers = restricted_users(0)
         if len(args.disable) > 0:
             theUsers = args.disable
         disableUsers(theUsers)
+    elif args.add:
+        logger.info('{} {}'.format(args.add, 'added to restricted'))
+        add_user(args.add)
     elif args.all:
-        savedDurations = readDurationFile(durationFile)
-        allDurations = { u:savedDurations[u] for u in allDurations }
+        savedDurations = readDurationFile()
+        allDurations = dict(savedDurations)
+        logged_in = windows_users()
+        for u in windows_users():
+            username = u['name']
+            if not username in allDurations:
+                allDurations[username] = UserDuration(username)
         for user in allDurations:
             logger.info(str(allDurations[user]))
-        checkUsers(allDurations, warnDuration, datetime.timedelta(hours=24))
+        checkUsers(allDurations)
         for user in allDurations:
-            # logger.info(str(allDurations[user]))
-            savedDurations.update(allDurations)
-        for user in savedDurations:
-            logger.info(str(savedDurations[user]))
-        writeDurationFile(durationFile, savedDurations)
+            logger.info(str(allDurations[user]))
+        writeDurationFile(savedDurations)
     elif args.view:
-        savedDurations = readDurationFile(durationFile)
+        savedDurations = readDurationFile()
         for user in savedDurations:
             logger.info(str(savedDurations[user]))
     elif args.msg:
-        playNotification('jake')
-        displayNotificationWindow('jake')
+        import getpass
+        playNotification(getpass.getuser())
+        displayNotificationWindow(getpass.getuser())
     elif args.logout:
         logger.info('{} {}'.format(args.logout, 'logging out'))
         logUserOut(args.logout)
     else:
-        savedDurations = readDurationFile(durationFile)
-        userDurations = { u:savedDurations[u] for u in userDurations }
+        userDurations = readDurationFile()
         wusers = checkUsers(userDurations)
-        savedDurations.update(userDurations)
-        writeDurationFile(durationFile, savedDurations)
+        writeDurationFile(userDurations)
         for user in wusers:
             disableUser(user)
             logger.info('{} {}'.format(user, wusers[user]))
-            if wusers[user].loginDuration > logoutDuration:
+            if wusers[user].minutes_remaining < 1:
                 logUserOut(user)
-	
-    # output_f.close()
