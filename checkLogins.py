@@ -70,7 +70,7 @@ def writeDurationFile(users, filename = durationFile):
     return True
 
 
-def playNotification(user = None, host = None):
+def playNotification():
     #subprocess.call([
     #    'powershell', '-c',
     #    '(New-Object Media.SoundPlayer "C:\Windows\Media\chord.wav").PlaySync();'
@@ -81,7 +81,7 @@ def playNotification(user = None, host = None):
         logger.info('cannot Beep')
 
 
-def displayNotificationWindow(user = None, host = None):
+def displayNotificationWindow(user = None):
     msgText = 'This is your warning.  You will be logged out ' +\
               'soon. Save your work now and logout to prevent data loss.'
     # subprocess.call(['env', 'DISPLAY={0}'.format(user.host),
@@ -121,8 +121,8 @@ def checkUsers(chkUsers, warn = warnDuration):
             if chkUsers[username].minutes_remaining <= warn:
                 logger.warning('{} has been warned with {} remaing'.format(
                     username,chkUsers[username].minutes_remaining))
-                playNotification(username)
-                displayNotificationWindow(username)
+                playNotification()
+                displayNotificationWindow()
                 warnedUsers[username] = chkUsers[username]
     return warnedUsers
 
@@ -251,14 +251,6 @@ if __name__ == '__main__':
                         help='more verbose logging')
     args = parser.parse_args()
 	
-    import sys
-    # output_f = open(r'C:\checkLogins\script_output.txt', 'a+')
-    # sys.stdout = output_f
-    # sys.stderr = output_f
-
-    # logger.debug('currently logged in:')
-    # for user in windows_users():
-    #     logger.debug('{}'.format(user))
     llevel = logging.INFO
     if args.verbose:
         llevel = logging.DEBUG
@@ -310,7 +302,7 @@ if __name__ == '__main__':
             logger.info(str(savedDurations[user]))
     elif args.msg:
         import getpass
-        playNotification(getpass.getuser())
+        playNotification()
         displayNotificationWindow(getpass.getuser())
     elif args.logout:
         logger.info('{} {}'.format(args.logout, 'logging out'))
