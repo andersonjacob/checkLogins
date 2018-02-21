@@ -40,7 +40,8 @@ def connectdb(filename = durationFile):
         return getattr(connectdb, 'conn')
     
     conn = sqlite3.connect(filename)
-    with open('db_initialize.sql','r') as sql:
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 
+                           'db_initialize.sql'), 'r') as sql:
         conn.executescript(sql.read())
     conn.commit()
     conn.row_factory = sqlite3.Row
@@ -65,7 +66,8 @@ def writeDurationFile(users, filename = durationFile):
     rows = [ (u.last_active, u.minutes_remaining, u.username) for u in users.values() ]
     with conn:
         conn.executemany(('update restricted_users '
-                          'set (last_active,minutes_remaining) = (?,?) '
+                          'set last_active = ?, '
+                          'minutes_remaining = ? '
                           'where username = ?'), rows)
     return True
 
@@ -81,7 +83,7 @@ def playNotification():
         logger.info('cannot Beep')
 
 
-def displayNotificationWindow(user = None):
+def displayNotificationWindow(user):
     msgText = 'This is your warning.  You will be logged out ' +\
               'soon. Save your work now and logout to prevent data loss.'
     # subprocess.call(['env', 'DISPLAY={0}'.format(user.host),
@@ -122,7 +124,7 @@ def checkUsers(chkUsers, warn = warnDuration):
                 logger.warning('{} has been warned with {} remaing'.format(
                     username,chkUsers[username].minutes_remaining))
                 playNotification()
-                displayNotificationWindow()
+                displayNotificationWindow(username)
                 warnedUsers[username] = chkUsers[username]
     return warnedUsers
 
