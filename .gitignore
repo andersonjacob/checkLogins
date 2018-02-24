@@ -3,3 +3,5 @@ checkLogins.log
 *.pkl
 checkLogins.db
 .vscode/
+*.py[cod]
+__pycache__/

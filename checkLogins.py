@@ -19,13 +19,15 @@ warnDuration = 6
 cronPeriod = 5
 replenish = 50
 
-durationFile = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'checkLogins.db')
+durationFile = os.path.join(os.path.dirname(os.path.abspath(__file__)), 
+                            'checkLogins.db')
 # print(durationFile)
 
 #####################################################################
 
 class UserDuration:
-    def __init__(self, username, last_active=datetime.datetime.now(), minutes_remaining=replenish):
+    def __init__(self, username, last_active=datetime.datetime.now(), 
+                 minutes_remaining=replenish):
         self.username = username
         self.minutes_remaining = minutes_remaining
         self.last_active = last_active
@@ -52,7 +54,8 @@ def connectdb(filename = durationFile):
 def readDurationFile(filename = durationFile):
     conn = connectdb(filename)
     users = {}
-    curs = conn.execute('select username, last_active, minutes_remaining from restricted_users;')
+    curs = conn.execute(('select username, last_active, minutes_remaining '
+                         'from restricted_users;'))
     for row in curs:
         logger.debug(tuple(row))
         users[row['username']] = UserDuration(row['username'],
@@ -63,7 +66,8 @@ def readDurationFile(filename = durationFile):
 
 def writeDurationFile(users, filename = durationFile):
     conn = connectdb(filename)
-    rows = [ (u.last_active, u.minutes_remaining, u.username) for u in users.values() ]
+    rows = [ (u.last_active, u.minutes_remaining, u.username) 
+             for u in users.values() ]
     with conn:
         conn.executemany(('update restricted_users '
                           'set last_active = ?, '
@@ -93,17 +97,14 @@ def displayNotificationWindow(user):
     #                  "soon." +\
     #                  "Save your work now and logout to " +\
     #                  "prevent data loss.'", username])
-    try:
-        subprocess.call(['msg', user, '/time:10', msgText])
-    except FileNotFoundError:
-        logger.info('fallback message')
-        win32ts.WTSSendMessage(win32ts.WTS_CURRENT_SERVER_HANDLE, 
-                               findUserSession(user), 'Logout Notification',
-                               msgText,
-                               Style=0x00000000 | 0x00000030 | 0x00001000,
-                               Timeout=15, Wait=False)
-        # return win32api.MessageBox(0, msgText, "Logout Notification", 
-                                   # 0x00001000 | 0x00000030 | 0x00200000)
+    win32ts.WTSSendMessage(win32ts.WTS_CURRENT_SERVER_HANDLE, 
+                           findUserSession(user), 'Logout Notification',
+                           msgText,
+                           Style=0x00000000 | 0x00000030 | 0x00001000,
+                           Timeout=15, Wait=False)
+    # win32api.MessageBox(0, msgText, 'Logout Notification',
+    #                     0x00000000 | 0x00000030 | 0x00001000)
+    # subprocess.call(['msg', user, '/time:10', msgText])
 
 
 def checkUsers(chkUsers, warn = warnDuration):
@@ -114,12 +115,16 @@ def checkUsers(chkUsers, warn = warnDuration):
         username = user.get('name', '').lower()
         if (user.get('state','').lower() == 'active'
             and username in chkUsers):
-            elapsed_minutes = min((checkTime - chkUsers[username].last_active)/datetime.timedelta(minutes=1),
-                                  cronPeriod)
-            chkUsers[username].minutes_remaining = max(0, chkUsers[username].minutes_remaining - int(elapsed_minutes))
+            elapsed_minutes = min(
+                ((checkTime - chkUsers[username].last_active)/
+                 datetime.timedelta(minutes=1)),
+                cronPeriod)
+            chkUsers[username].minutes_remaining = max(
+                0, chkUsers[username].minutes_remaining - int(elapsed_minutes))
             chkUsers[username].last_active = checkTime
-            logger.info('user {} has used {:.3f} minutes for {} minutes remaining'.format(
-                username, elapsed_minutes, chkUsers[username].minutes_remaining))
+            logger.info(('user {} has used {:.3f} minutes for {} minutes '
+                         'remaining').format(
+                username,elapsed_minutes,chkUsers[username].minutes_remaining))
             if chkUsers[username].minutes_remaining <= warn:
                 logger.warning('{} has been warned with {} remaing'.format(
                     username,chkUsers[username].minutes_remaining))
@@ -127,6 +132,7 @@ def checkUsers(chkUsers, warn = warnDuration):
                 displayNotificationWindow(username)
                 warnedUsers[username] = chkUsers[username]
     return warnedUsers
+
 
 def disableUser(user):
     logger.info('locking user: {}'.format(user))
@@ -136,9 +142,11 @@ def disableUser(user):
         logger.warning('failed to disable user {}: {}'.format(user, ret))
     return ret
 
+
 def disableUsers(users):
     for user in users:
         disableUser(user)
+
 
 def enableUser(user):
     logger.info('unlocking user: {}'.format(user))
@@ -147,6 +155,7 @@ def enableUser(user):
     if ret != 0:
         logger.warning('failed to enable user {}: {}'.format(user, ret))
     return ret
+
 
 def enableUsers(users):
     userDurations = readDurationFile()
@@ -160,12 +169,14 @@ def enableUsers(users):
                 pass
     writeDurationFile(userDurations)
 
+
 def findUserSession(user):
     for cuser in windows_users():
         if cuser.get('name','').lower() == user:
             return cuser['session']
     logger.info('user: {} session not found'.format(user))
     return ''
+
 
 def windows_users():
     user_sessions = win32ts.WTSEnumerateSessions()
@@ -221,6 +232,7 @@ def add_user(user):
     except sqlite3.IntegrityError:
         pass
 
+
 def restricted_users(min_stat=1):
     conn = connectdb()
     return [ r['username'] for r in conn.execute(
@@ -264,7 +276,9 @@ if __name__ == '__main__':
     ch.setLevel(llevel)
     logger.addHandler(ch)
 
-    fh = logging.FileHandler(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'checkLogins.log'))
+    fh = logging.FileHandler(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), 
+        'checkLogins.log'))
     fh.setFormatter(formatter)
     fh.setLevel(llevel)
     logger.addHandler(fh)
@@ -303,9 +317,10 @@ if __name__ == '__main__':
         for user in savedDurations:
             logger.info(str(savedDurations[user]))
     elif args.msg:
-        import getpass
         playNotification()
-        displayNotificationWindow(getpass.getuser())
+        for u in windows_users():
+            if u['state'] == 'Active':
+                displayNotificationWindow(u['name'])
     elif args.logout:
         logger.info('{} {}'.format(args.logout, 'logging out'))
         logUserOut(args.logout)
