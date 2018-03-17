@@ -82,6 +82,7 @@ def playNotification():
     #    '(New-Object Media.SoundPlayer "C:\Windows\Media\chord.wav").PlaySync();'
     #])
     try:
+        win32api.MessageBeep(0x00000010)
         win32api.Beep(880, 750)
     except:
         logger.info('cannot Beep')
@@ -126,7 +127,7 @@ def checkUsers(chkUsers, warn = warnDuration):
                          'remaining').format(
                 username,elapsed_minutes,chkUsers[username].minutes_remaining))
             if chkUsers[username].minutes_remaining <= warn:
-                logger.warning('{} has been warned with {} remaing'.format(
+                logger.warning('{} has been warned with {} remaining'.format(
                     username,chkUsers[username].minutes_remaining))
                 playNotification()
                 displayNotificationWindow(username)
