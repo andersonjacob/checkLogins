@@ -16,8 +16,12 @@ def time_left(user):
 if __name__ == '__main__':
     import sys
     for u in windows_users():
+        print('user: {} ({})'.format(u['name'], u['state']))
         if u['state'] == 'Active':
             time_left(u['name'])
 
-    for u in sys.argv:
+    for u in sys.argv[1:]:
+        print('user: {}'.format(u))
         time_left(u)
+
+    # input('\nPress enter to exit.')
