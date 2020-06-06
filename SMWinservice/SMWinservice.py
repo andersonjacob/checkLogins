@@ -76,20 +76,20 @@ class SMWinservice(win32serviceutil.ServiceFramework):
         Override to add logic before the start
         eg. running condition
         '''
-        pass
+        pass # pylint: disable=unnecessary-pass
 
     def stop(self):
         '''
         Override to add logic before the stop
         eg. invalidating running condition
         '''
-        pass
+        pass # pylint: disable=unnecessary-pass
 
     def main(self):
         '''
         Main class to be ovverridden to add logic
         '''
-        pass
+        pass # pylint: disable=unnecessary-pass
 
 # entry point of the module: copy and paste into the new module
 # ensuring you are calling the "parse_command_line" of the new created class

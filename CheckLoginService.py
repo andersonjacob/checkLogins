@@ -33,7 +33,7 @@ class CheckLoginService(SMWinservice):
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
             level=logging.INFO, datefmt="%Y-%m-%d %H:%M:%S")
         self.is_running = True
-        self.last_check = (datetime.datetime.now() 
+        self.last_check = (datetime.datetime.now()
                 - datetime.timedelta(minutes=2*self.CHECK_AFTER_MINUTES))
         self.last_enabled = last_system_enable()
         logger.info("starting service with last_check: {}".format(self.last_check))
