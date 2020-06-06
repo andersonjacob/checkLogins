@@ -17,7 +17,7 @@ logger = logging.getLogger("checkLogins")
 
 warnDuration = 6
 cronPeriod = 5
-replenish = 50
+replenish = 60
 
 durationFile = os.path.join(os.path.dirname(os.path.abspath(__file__)), 
                             'checkLogins.db')
@@ -27,14 +27,15 @@ durationFile = os.path.join(os.path.dirname(os.path.abspath(__file__)),
 
 class UserDuration:
     def __init__(self, username, last_active=datetime.datetime.now(), 
-                 minutes_remaining=replenish):
+                 minutes_remaining=replenish, manual=-1):
         self.username = username
         self.minutes_remaining = minutes_remaining
         self.last_active = last_active
+        self.manual = manual
 
     def __str__(self):
-        return 'Duration({0},{1},{2})'.format(
-            self.username, self.last_active, self.minutes_remaining)
+        return 'Duration({0},{1},{2},{3})'.format(
+            self.username, self.last_active, self.minutes_remaining,self.manual)
 
 
 def connectdb(filename = durationFile):
@@ -54,13 +55,14 @@ def connectdb(filename = durationFile):
 def readDurationFile(filename = durationFile):
     conn = connectdb(filename)
     users = {}
-    curs = conn.execute(('select username, last_active, minutes_remaining '
+    curs = conn.execute(('select username, last_active, minutes_remaining, manual_enable '
                          'from restricted_users;'))
     for row in curs:
         logger.debug(tuple(row))
         users[row['username']] = UserDuration(row['username'],
                                               dparser.parse(row['last_active']),
-                                              row['minutes_remaining'])
+                                              row['minutes_remaining'],
+                                              row['manual_enable'])
     return users
 
 
@@ -108,7 +110,7 @@ def displayNotificationWindow(user):
     # subprocess.call(['msg', user, '/time:10', msgText])
 
 
-def checkUsers(chkUsers, warn = warnDuration):
+def checkUsers(chkUsers, warn = warnDuration, cronPeriod=5):
     checkTime = datetime.datetime.now()
     warnedUsers = {}
     for user in windows_users():
@@ -169,6 +171,26 @@ def enableUsers(users):
             except:
                 pass
     writeDurationFile(userDurations)
+
+
+def enable_all_users(theUsers=None):
+    enableTime = datetime.datetime.now()
+    print_duration_file()
+    if theUsers is None:
+        theUsers = restricted_users()
+        conn = connectdb()
+        conn.execute('insert into last_system_enable values (?)', (enableTime,))
+    enableUsers(theUsers)
+    print_duration_file()
+
+
+def last_system_enable():
+    conn = connectdb()
+    curs = conn.execute('select last_enable from last_system_enable order by last_enable desc limit 1')
+    try:
+        return dparser.parse(curs.fetchone()['last_enable'])
+    except TypeError:
+        return datetime.datetime(year=2020, month=1, day=1)
 
 
 def findUserSession(user):
@@ -234,11 +256,37 @@ def add_user(user):
         pass
 
 
+def set_manual_user(user, restrict=0):
+    conn = connectdb()
+    pars = (restrict, user)
+    with conn:
+        rslt = conn.execute('update restricted_users '
+                            'set manual_enable=? where username=?', pars)
+        print(rslt)
+
+
 def restricted_users(min_stat=1):
     conn = connectdb()
     return [ r['username'] for r in conn.execute(
         'select username from restricted_users where manual_enable>=?', 
         (min_stat,)) ]
+
+
+def print_duration_file():
+    savedDurations = readDurationFile()
+    for user in savedDurations:
+        logger.info(str(savedDurations[user]))
+
+
+def monitor_users(check_period=5):
+    userDurations = readDurationFile()
+    wusers = checkUsers(userDurations, cronPeriod=check_period)
+    writeDurationFile(userDurations)
+    for user in wusers:
+        disableUser(user)
+        logger.info('{} {}'.format(user, wusers[user]))
+        if wusers[user].minutes_remaining < 1:
+            logUserOut(user)
 
 
 if __name__ == '__main__':
@@ -260,10 +308,16 @@ if __name__ == '__main__':
                         help='Logout given user.')
     parser.add_argument('--add', metavar='user', #nargs=1,
                         help='Add restricted user.')
+    parser.add_argument('--restrict', metavar='user', #nargs=1,
+                        help='Restrict user.')
+    parser.add_argument('--unrestrict', metavar='user', #nargs=1,
+                        help='Unrestrict user.')
     parser.add_argument('--msg', action='store_true',
                         help='display the message and play the sound.')
     parser.add_argument('--verbose', action='store_true',
                         help='more verbose logging')
+    parser.add_argument('--lastEnable', action='store_true',
+                        help="print last system enable")
     args = parser.parse_args()
 	
     llevel = logging.INFO
@@ -287,18 +341,25 @@ if __name__ == '__main__':
     log_windows_users()
 
     if args.enable != None:
-        theUsers = restricted_users()
-        if len(args.enable) > 0:
-            theUsers = args.enable
-        enableUsers(theUsers)
+        eUsers = args.enable if len(args.enable) > 0 else None
+        enable_all_users(eUsers)
+    elif args.lastEnable:
+        logger.info('{}'.format(last_system_enable()))
     elif args.disable != None:
         theUsers = restricted_users(0)
         if len(args.disable) > 0:
             theUsers = args.disable
         disableUsers(theUsers)
+        print_duration_file()
     elif args.add:
         logger.info('{} {}'.format(args.add, 'added to restricted'))
         add_user(args.add)
+    elif args.restrict:
+        logger.info('{} {}'.format(args.restrict, 'made to be manual'))
+        set_manual_user(args.restrict)
+    elif args.unrestrict:
+        logger.info('{} {}'.format(args.unrestrict, 'made to be automatic'))
+        set_manual_user(args.unrestrict, 1)
     elif args.all:
         savedDurations = readDurationFile()
         allDurations = dict(savedDurations)
@@ -314,9 +375,7 @@ if __name__ == '__main__':
             logger.info(str(allDurations[user]))
         writeDurationFile(savedDurations)
     elif args.view:
-        savedDurations = readDurationFile()
-        for user in savedDurations:
-            logger.info(str(savedDurations[user]))
+        print_duration_file()
     elif args.msg:
         playNotification()
         for u in windows_users():
@@ -326,11 +385,4 @@ if __name__ == '__main__':
         logger.info('{} {}'.format(args.logout, 'logging out'))
         logUserOut(args.logout)
     else:
-        userDurations = readDurationFile()
-        wusers = checkUsers(userDurations)
-        writeDurationFile(userDurations)
-        for user in wusers:
-            disableUser(user)
-            logger.info('{} {}'.format(user, wusers[user]))
-            if wusers[user].minutes_remaining < 1:
-                logUserOut(user)
+        monitor_users()

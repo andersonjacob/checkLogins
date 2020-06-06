@@ -12,3 +12,9 @@ create table if not exists user_log (
 );
 
 create index if not exists logged_date_idx on user_log(logged_at);
+
+create table if not exists last_system_enable (
+  last_enable datetime
+);
+
+create index if not exists system_enable_idx on last_system_enable(last_enable);
