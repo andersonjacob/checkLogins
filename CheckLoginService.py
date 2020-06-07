@@ -20,7 +20,6 @@ class CheckLoginService(SMWinservice):
     def __init__(self, args):
         super().__init__(args)
         self.is_running = False
-        self.last_check = None
         self.last_enabled = datetime.datetime.now()
 
     def start(self):
@@ -33,10 +32,8 @@ class CheckLoginService(SMWinservice):
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
             level=logging.INFO, datefmt="%Y-%m-%d %H:%M:%S")
         self.is_running = True
-        self.last_check = (datetime.datetime.now()
-                - datetime.timedelta(minutes=2*self.CHECK_AFTER_MINUTES))
         self.last_enabled = last_system_enable()
-        logger.info("starting service with last_check: {}".format(self.last_check))
+        logger.info("starting service")
 
     def stop(self):
         logger.info("stopping service")
@@ -52,9 +49,7 @@ class CheckLoginService(SMWinservice):
                     logger.info('received stop: {}'.format(rc))
                     break
                 curr_run = datetime.datetime.now()
-                if (curr_run - self.last_check >= datetime.timedelta(minutes=self.CHECK_AFTER_MINUTES)):
-                    monitor_users(self.CHECK_AFTER_MINUTES)
-                    self.last_check = curr_run
+                monitor_users(self.CHECK_AFTER_MINUTES)
                 if ((curr_run.date() > self.last_enabled.date())
                     and (curr_run.time() > datetime.time(hour=8))):
                     enable_all_users()
